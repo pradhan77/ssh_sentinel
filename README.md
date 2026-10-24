@@ -2,64 +2,64 @@
 
 **A Python-based SSH brute-force detection tool for defensive security monitoring.**
 
-SSH Sentinel analyzes OpenSSH authentication logs to identify suspicious login activity, classify brute-force attempts by severity, and detect a potentially compromised account when a successful login follows repeated failures from the same IP address.
+SSH Sentinel analyzes OpenSSH authentication logs to identify suspicious login activity, classify brute-force attempts by severity, and detect potentially compromised accounts when a successful login follows repeated failures from the same IP address.
 
-It includes a command-line interface (CLI), a Tkinter graphical user interface (GUI), structured JSON output, and a unit-tested detection engine.
+The project includes a command-line interface (CLI), a Tkinter graphical user interface (GUI), JSON output, and a unit-tested detection engine.
 
 ## Features
 
 - **Sliding-window detection:** Identifies bursts of failed SSH authentication attempts within a configurable time window.
 - **Severity classification:** Assigns LOW, MEDIUM, HIGH, or CRITICAL severity based on observed activity and login correlation.
 - **Success-after-failure correlation:** Raises a CRITICAL alert when a successful login follows a sufficient number of failed attempts from the same IP address within the configured lookback period.
-- **Duplicate-event handling:** Avoids counting certain PAM authentication failures twice when they correspond to a failed-password event from the same SSH process.
-- **IPv4 and IPv6 support:** Uses Python's `ipaddress` module to validate and classify IP addresses.
-- **Timestamp parsing:** Supports ISO-style timestamps and traditional syslog timestamps. ISO timestamps with timezone offsets are normalized to UTC by the current implementation; traditional syslog timestamps require a supplied year and use the machine's local timezone assumption.
-- **CLI and JSON output:** Analyze log files or journal entries and produce structured output for further processing.
-- **Tkinter GUI:** Provides severity filtering, colored alerts, and live monitoring with background log reads.
-- **Testable architecture:** Keeps the analysis engine separate from the GUI so the core logic can be tested independently.
+- **Duplicate-event handling:** Avoids double-counting certain PAM authentication failures that correspond to failed-password events from the same SSH process.
+- **IPv4 and IPv6 support:** Parses source IP addresses and classifies addresses using Python's `ipaddress` module.
+- **Timestamp parsing:** Supports ISO-style timestamps and traditional syslog timestamps, including timezone-offset handling for ISO timestamps.
+- **CLI and JSON output:** Analyzes log files or system journal entries and produces structured output.
+- **Tkinter GUI:** Provides a visual interface for reviewing alerts, filtering by severity, and monitoring logs.
+- **Testable architecture:** Separates the analysis engine from the GUI so detection logic can be tested independently.
 
 ## How It Works
 
-SSH Sentinel follows a simple detection workflow:
+SSH Sentinel follows this workflow:
 
-1. Read SSH authentication logs from a file or the system journal.
-2. Parse relevant authentication events, including failed attempts and accepted logins.
-3. Group failed attempts by source IP address.
-4. Calculate the peak number of failures within the configured sliding time window.
-5. Assign severity according to the configured thresholds.
-6. Correlate successful logins with preceding failures from the same IP address.
-7. Produce readable alerts or JSON output.
+1. Reads SSH authentication logs from a file or the system journal.
+2. Parses relevant authentication events, including failed attempts and accepted logins.
+3. Groups failed authentication attempts by source IP address.
+4. Calculates the peak number of failures within a sliding time window.
+5. Assigns severity based on the configured detection thresholds.
+6. Correlates successful logins with preceding failures from the same IP address.
+7. Produces readable alerts or JSON output for further analysis.
 
 ## Detection Logic
 
-The default settings are:
+The documented default severity thresholds are:
 
 | Severity | Condition |
 |---|---|
-| LOW | Failed attempts from one IP, with a peak below 3 in a 60-second window |
+| LOW | Failed attempts from one IP with a peak below 3 in a 60-second window |
 | MEDIUM | At least 3 failures from one IP in a 60-second window |
 | HIGH | At least 5 failures from one IP in a 60-second window |
-| CRITICAL | A successful login from an IP with at least 5 preceding failures in the previous 15 minutes |
+| CRITICAL | A successful login from an IP with at least 5 preceding failures within the previous 15 minutes |
 
-**Note:** HIGH takes precedence over MEDIUM when the higher threshold is reached. A CRITICAL correlation alert takes precedence over the ordinary brute-force alert for the same source IP.
+A CRITICAL correlation alert takes precedence over the ordinary brute-force alert for the same source IP.
 
-These thresholds are configurable through the `LogAnalyzer` constructor and CLI options where supported.
+These thresholds are intended to help prioritize suspicious activity. They are not proof that an attack or account compromise has occurred. Legitimate users who repeatedly enter an incorrect password can also generate alerts.
 
 ## Requirements
 
 - Python 3
-- Linux environment recommended for live SSH log monitoring
+- Linux recommended for live SSH log monitoring
 - Tkinter for the graphical interface
 - `journalctl` for reading system journal entries
 
-On Kali Linux or Debian, install Tkinter if necessary:
+On Kali Linux or Debian, install the required system packages:
 
 ```bash
 sudo apt update
 sudo apt install python3-tk
 ```
 
-Live journal monitoring requires suitable permissions to read the system journal. Depending on your distribution, this may involve membership in the `systemd-journal` or `adm` group.
+Live journal monitoring requires appropriate permissions to read the system journal. Depending on the distribution, this may involve membership in the `systemd-journal` or `adm` group.
 
 ## Installation
 
@@ -70,13 +70,13 @@ git clone https://github.com/pradhan77/ssh_sentinel.git
 cd ssh_sentinel
 ```
 
-Run the unit tests:
+Run the unit tests to verify the installation:
 
 ```bash
 python3 -m unittest -v
 ```
 
-The current test suite contains **31 unit tests**, covering parsing, detection thresholds, severity classification, IP handling, event deduplication, successful-login correlation, timestamp handling, and JSON serialization.
+The current test suite contains 31 unit tests covering parsing, detection thresholds, severity classification, IP handling, event deduplication, successful-login correlation, timestamp handling, and JSON serialization.
 
 ## Usage
 
@@ -86,15 +86,17 @@ The current test suite contains **31 unit tests**, covering parsing, detection t
 python3 analyzer.py sample_logs/auth_sample.log
 ```
 
-### 2. Analyze a log file
+This analyzes the included sample authentication logs and displays detected activity.
 
-For systems that maintain an authentication log at `/var/log/auth.log`:
+### 2. Analyze an authentication log file
+
+On systems that maintain an authentication log at `/var/log/auth.log`:
 
 ```bash
 python3 analyzer.py /var/log/auth.log
 ```
 
-The path depends on your operating system and logging configuration.
+The correct log path depends on the operating system and logging configuration. Some systems store authentication events only in the system journal.
 
 ### 3. Read the system journal
 
@@ -102,23 +104,25 @@ The path depends on your operating system and logging configuration.
 python3 analyzer.py --journal
 ```
 
+Use this option on systems where SSH authentication events are available through `journalctl`.
+
 ### 4. Generate JSON output
 
 ```bash
 python3 analyzer.py sample_logs/auth_sample.log --json
 ```
 
-JSON output is useful for structured processing, testing, or future integration with SIEM and SOAR workflows.
+JSON output is useful for structured processing, testing, and potential future integration with SIEM or SOAR workflows.
 
 ### 5. Configure the detection threshold
 
-For example, set the failure threshold to 3 and use a 30-second window:
+For example, use a 30-second window and a threshold of 3 failures:
 
 ```bash
 python3 analyzer.py auth.log --window 30 --threshold 3 --year 2026
 ```
 
-The `--year` option applies to traditional syslog timestamps that do not include a year.
+The `--year` option applies to traditional syslog timestamps that do not contain a year. Check the CLI options supported by your installed version before using optional arguments.
 
 ### 6. Launch the graphical interface
 
@@ -130,7 +134,7 @@ The GUI provides a visual way to inspect alerts, filter by severity, and monitor
 
 ## Example Alert
 
-The following is an illustrative example using synthetic log data and documentation-only IP addresses:
+The following is an illustrative example using synthetic log data and a documentation-only IP address:
 
 ```text
 [CRITICAL] Possible Compromise (login succeeded after failures)
@@ -143,9 +147,9 @@ Users Tried: admin, git, oracle, root, test, ubuntu
 Note: Login accepted for 'root' (password) at 2026-10-24 10:00:30 UTC after 8 failures in the previous 15 minutes
 ```
 
-This alert indicates that the same source IP generated multiple failed authentication attempts before a successful login. Such behavior deserves investigation, but it does not by itself prove that an account was compromised.
+This example represents repeated authentication failures followed by a successful login from the same source IP address. Such activity warrants investigation, but the alert alone does not prove that the account was compromised.
 
-The sample log also demonstrates slower guessing attempts and IPv6 activity.
+The included sample logs also demonstrate slower guessing attempts and IPv6 activity.
 
 ## Project Structure
 
@@ -167,6 +171,7 @@ ssh_sentinel/
 | `test_analyzer.py` | Unit tests for the detection engine |
 | `sample_logs/` | Synthetic authentication logs for testing and demonstrations |
 | `.gitignore` | Excludes files that should not be tracked by Git |
+| `README.md` | Project documentation and usage instructions |
 
 ## Testing
 
@@ -176,7 +181,7 @@ Run the complete test suite:
 python3 -m unittest -v
 ```
 
-The current suite contains 31 tests for:
+The current suite contains 31 tests covering:
 
 - Empty input and irrelevant log entries
 - Timestamp parsing and invalid dates
@@ -186,28 +191,28 @@ The current suite contains 31 tests for:
 - Successful-login correlation
 - JSON serialization
 
-Passing unit tests validates the tested scenarios, but does not guarantee detection of every attack pattern or log format.
+Passing these tests validates the scenarios covered by the suite. It does not guarantee detection of every attack pattern, compatibility with every log format, or the absence of false positives.
 
 ## Limitations
 
-- **Per-IP detection:** Attempts distributed across many source IP addresses are not correlated as a single campaign.
-- **Slow guessing:** Attempts spread over longer periods may remain LOW because the primary burst detector uses a short sliding window.
+- **Per-IP detection:** Attempts distributed across multiple source IP addresses are not correlated as a single campaign.
+- **Slow guessing:** Attempts spread across longer periods may remain LOW because the primary burst detector uses a short sliding window.
 - **Log-format differences:** Authentication log formats vary by distribution, OpenSSH version, and logging configuration.
-- **Traditional syslog timestamps:** These do not include a timezone and are interpreted using the machine's local timezone assumption. Mixing logs from different systems may require additional normalization.
-- **Timestamp validation:** Additional testing against real-world log formats, timezone edge cases, and malformed input is still valuable.
-- **No threat-intelligence enrichment:** GeoIP and reputation lookups are not currently implemented.
+- **Traditional syslog timestamps:** These timestamps do not contain a timezone. Their interpretation depends on the implementation's timezone handling, so mixed-system logs may require additional normalization.
+- **Timestamp edge cases:** Testing against additional real-world log formats, timezone boundaries, and malformed input would strengthen reliability.
+- **No threat-intelligence enrichment:** GeoIP and IP reputation lookups are not currently implemented.
 - **No automatic blocking:** SSH Sentinel generates alerts but does not itself block source IP addresses.
-- **No measured detection benchmark yet:** Precision, recall, false-positive rates, and performance on large datasets have not yet been established.
+- **No measured detection benchmark:** Precision, recall, false-positive rates, and performance on large datasets have not yet been established.
 
 ## Future Improvements
 
 - Detect password spraying and distributed brute-force activity.
-- Add a longer time window for slow authentication attacks.
+- Add longer detection windows for slow authentication attacks.
 - Expand timestamp and log-format compatibility testing.
 - Evaluate detection quality using labelled datasets and report precision, recall, and false-positive rates.
 - Improve alert context and evidence presentation.
-- Add optional integrations with SIEM and SOAR platforms.
-- Improve automated regression testing with larger synthetic attack scenarios.
+- Add optional SIEM and SOAR integrations.
+- Expand automated regression testing with larger synthetic attack scenarios.
 
 ## Related Project: Wazuh + n8n Security Automation
 
@@ -215,30 +220,27 @@ SSH Sentinel is a standalone detection-engineering project.
 
 Separately, I built a Wazuh and n8n security automation workflow that connects SSH brute-force alerts to a token-protected webhook, uses Gemini for AI-assisted alert analysis, sends email notifications for high/critical alerts, and triggers a firewall response through the Wazuh API.
 
-The two projects demonstrate complementary skills:
+These projects demonstrate complementary skills:
 
-- **SSH Sentinel:** Python development, log analysis, detection logic, event correlation, and testing.
+- **SSH Sentinel:** Python development, log analysis, detection logic, event correlation, and unit testing.
 - **Wazuh + n8n:** SIEM integration, AI-assisted triage, workflow automation, alert notification, and defensive response.
 
-They are separate projects and are not currently integrated into a single pipeline.
+The two projects are separate and are not currently integrated into a single pipeline.
 
 ## What I Learned
 
 - Brute-force detection should consider the rate of failed attempts, not only the total count.
-- Correlating failed authentication events with a subsequent successful login can highlight activity that a simple counter might miss.
-- Duplicate log events need careful handling to avoid inflating attack counts.
-- Timestamp normalization matters when events from different timezones are compared.
+- Correlating failed authentication events with a subsequent successful login can reveal activity that a simple counter might miss.
+- Duplicate log events require careful handling to avoid inflating attack counts.
+- Timestamp normalization matters when comparing events from different timezones.
 - Separating detection logic from the GUI makes software easier to test and maintain.
 - Security automation requires validation, reliable logging, and safeguards against false positives.
 
 ## Author
 
-**Baibhav Pradhan**  
+**Baibhav Pradhan**
+
 Ethical Hacking & Cybersecurity Student | Defensive Security | SOC / Blue Team
 
 - GitHub: [@pradhan77](https://github.com/pradhan77)
-- LinkedIn: [Baibhav Pradhan](https://www.linkedin.com/in/baibhav-pradhan-1835b6399/)
-
----
-
-*Built as a hands-on defensive cybersecurity project for learning, experimentation, and portfolio development.*
+- LinkedIn: [Baibhav Pradhan](https://www.linkedin.com/in/baibhav-pradhan-
