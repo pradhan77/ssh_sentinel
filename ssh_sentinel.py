@@ -1,229 +1,183 @@
+"""SSH Sentinel - Tkinter front end for the analyzer module."""
+import queue
+import threading
 import tkinter as tk
-from tkinter import messagebox, filedialog
-import re
-from collections import defaultdict
-import subprocess
+from tkinter import filedialog, messagebox
 
-# ================= LOG ANALYZER =================
-class LogAnalyzer:
-    def __init__(self, threshold=1):
-        self.threshold = threshold
-        self.failed_attempts = defaultdict(int)
-        self.failed_timestamps = defaultdict(list)
-        self.alerts = []
-        self.success_logins = []
+from analyzer import LogAnalyzer, read_file, read_journal
 
-    def analyze_logs_text(self, lines):
-        self.failed_attempts.clear()
-        self.failed_timestamps.clear()
-        self.alerts.clear()
-        self.success_logins.clear()
-        for line in lines:
-            self._process_line(line)
-        self._generate_alerts()
-        return self.alerts, self.success_logins
+REFRESH_MS = 10000
+POLL_MS = 100
 
-    def _extract_timestamp(self, line):
-        tokens = line.split()
-        if len(tokens) >= 3:
-            return f"{tokens[0]} {tokens[1]} {tokens[2]}"
-        return "Unknown Time"
+TAG_COLORS = {
+    "critical": "#6a1b9a",
+    "high": "#c62828",
+    "medium": "#ef6c00",
+    "low": "#9e7d00",
+    "info": "#1565c0",
+}
 
-    def _process_line(self, line):
-        timestamp = self._extract_timestamp(line)
-        
-        if "Failed password" in line or "authentication failure" in line:
-            ip_match = re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", line)
-            if ip_match:
-                ip = ip_match.group()
-                self.failed_attempts[ip] += 1
-                self.failed_timestamps[ip].append(timestamp)
 
-        if "Accepted password" in line or "Accepted publickey" in line:
-            match = re.search(
-                r"Accepted .* for (\w+) from (\d{1,3}(?:\.\d{1,3}){3})",
-                line
-            )
-            if match:
-                user, ip = match.groups()
-                self.success_logins.append(
-                    f"[INFO] Successful SSH Login\n"
-                    f"Time: {timestamp}\n"
-                    f"User: {user}\n"
-                    f"IP Address: {ip}\n"
-                    f"{'-'*55}"
-                )
-
-    def _generate_alerts(self):
-        for ip, count in self.failed_attempts.items():
-            if count >= self.threshold:
-                if count >= 5:
-                    level = "HIGH"
-                elif count >= 3:
-                    level = "MEDIUM"
-                else:
-                    level = "LOW"
-                
-                timestamps = self.failed_timestamps[ip]
-                if len(timestamps) > 1:
-                    time_str = f"({', '.join(timestamps)})"
-                else:
-                    time_str = timestamps[0]
-
-                self.alerts.append(
-                    f"[{level}] Brute Force Attempt Detected\n"
-                    f"IP Address: {ip}\n"
-                    f"Failed Attempts: {count}\n"
-                    f"Time: {time_str}\n"
-                    f"{'-'*55}"
-                )
-
-# ================= GUI =================
-class IDS_GUI:
+class SentinelGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("SSH Sentinel – Brute Force & Login Monitor")
+        self.root.title("SSH Sentinel - Brute Force & Login Monitor")
         self.root.geometry("950x700")
         self.root.configure(bg="#eceff1")
 
         self.analyzer = LogAnalyzer()
         self.alerts = []
-        self.success_logins = []
+        self.logins = []
         self.live_monitor = tk.BooleanVar(value=False)
+        self.results = queue.Queue()
+        self._busy = False
+        self._live_id = None
+        self._current_filter = "all"
 
         self._create_widgets()
 
+    # ------------------------------------------------------------------ UI
     def _create_widgets(self):
         header = tk.Frame(self.root, bg="#263238", pady=18)
         header.pack(fill="x")
-        
-        tk.Label(
-            header,
-            text="SSH Sentinel",
-            font=("Helvetica", 22, "bold"),
-            fg="white",
-            bg="#263238"
-        ).pack()
-        
-        tk.Label(
-            header,
-            text="Brute Force & SSH Login Monitor",
-            font=("Helvetica", 11),
-            fg="#cfd8dc",
-            bg="#263238"
-        ).pack()
+        tk.Label(header, text="SSH Sentinel", font=("Helvetica", 22, "bold"),
+                 fg="white", bg="#263238").pack()
+        tk.Label(header, text="Windowed brute-force detection and login monitor",
+                 font=("Helvetica", 11), fg="#cfd8dc", bg="#263238").pack()
 
-        control_frame = tk.Frame(self.root, bg="#eceff1", pady=15)
-        control_frame.pack()
+        controls = tk.Frame(self.root, bg="#eceff1", pady=15)
+        controls.pack()
+        tk.Button(controls, text="Analyze Live SSH Logs", bg="#388e3c", fg="white",
+                  width=26, command=self.analyze_ssh_logs).grid(row=0, column=0, padx=12)
+        tk.Button(controls, text="Load Log File", bg="#1976d2", fg="white",
+                  width=26, command=self.load_log_file).grid(row=0, column=1, padx=12)
+        tk.Checkbutton(controls, text="Live Monitor", variable=self.live_monitor,
+                       bg="#eceff1", command=self._toggle_live_monitor
+                       ).grid(row=0, column=2, padx=12)
 
-        tk.Button(control_frame, text="Analyze Live SSH Logs",
-                  bg="#388e3c", fg="white", width=26,
-                  command=self.analyze_ssh_logs).grid(row=0, column=0, padx=12)
-        
-        tk.Button(control_frame, text="Load Log File",
-                  bg="#1976d2", fg="white", width=26,
-                  command=self.load_log_file).grid(row=0, column=1, padx=12)
-        
-        tk.Checkbutton(control_frame, text="Live Monitor",
-                       variable=self.live_monitor,
-                       bg="#eceff1",
-                       command=self._toggle_live_monitor).grid(row=0, column=2, padx=12)
+        filters = tk.Frame(self.root, bg="#eceff1", pady=5)
+        filters.pack()
+        buttons = [("ALL", "all"), ("CRITICAL", "critical"), ("HIGH", "high"),
+                   ("MEDIUM", "medium"), ("LOW", "low"), ("Successful Logins", "info")]
+        for col, (label, tag) in enumerate(buttons):
+            tk.Button(filters, text=label, width=16 if tag == "info" else 11,
+                      command=lambda t=tag: self._apply_filter(t)
+                      ).grid(row=0, column=col, padx=4)
 
-        filter_frame = tk.Frame(self.root, bg="#eceff1", pady=5)
-        filter_frame.pack()
+        container = tk.LabelFrame(self.root, text=" Detection Output ",
+                                  bg="#eceff1", padx=10, pady=10)
+        container.pack(fill="both", expand=True, padx=15, pady=10)
 
-        tk.Button(filter_frame, text="ALL", width=12, command=lambda: self._apply_filter("all")).grid(row=0, column=0, padx=5)
-        tk.Button(filter_frame, text="HIGH", width=12, command=lambda: self._apply_filter("high")).grid(row=0, column=1, padx=5)
-        tk.Button(filter_frame, text="MEDIUM", width=12, command=lambda: self._apply_filter("medium")).grid(row=0, column=2, padx=5)
-        tk.Button(filter_frame, text="LOW", width=12, command=lambda: self._apply_filter("low")).grid(row=0, column=3, padx=5)
-        tk.Button(filter_frame, text="Successful Logins", width=18, command=lambda: self._apply_filter("info")).grid(row=0, column=4, padx=5)
-
-        output_container = tk.LabelFrame(self.root, text=" Detection Output ",
-                                        bg="#eceff1", padx=10, pady=10)
-        output_container.pack(fill="both", expand=True, padx=15, pady=10)
-
-        self.output = tk.Text(output_container, font=("Consolas", 11), bg="#fafafa")
+        self.output = tk.Text(container, font=("Consolas", 11), bg="#fafafa")
         self.output.pack(side="left", fill="both", expand=True)
-
-        scrollbar = tk.Scrollbar(output_container, command=self.output.yview)
+        scrollbar = tk.Scrollbar(container, command=self.output.yview)
         scrollbar.pack(side="right", fill="y")
         self.output.configure(yscrollcommand=scrollbar.set)
 
-        # Tag colors
-        self.output.tag_config("high", foreground="#c62828")    # red
-        self.output.tag_config("medium", foreground="#ef6c00")  # orange
-        self.output.tag_config("low", foreground="#fbc02d")     # yellow
-        self.output.tag_config("info", foreground="#1565c0")    # blue
+        for tag, color in TAG_COLORS.items():
+            font = ("Consolas", 11, "bold") if tag == "critical" else None
+            self.output.tag_config(tag, foreground=color, **({"font": font} if font else {}))
 
-        self.status = tk.Label(self.root, text="Status: Idle",
-                              bg="#37474f", fg="white", anchor="w", padx=10)
+        self.status = tk.Label(self.root, text="Status: Idle", bg="#37474f",
+                               fg="white", anchor="w", padx=10)
         self.status.pack(fill="x")
 
+    # ------------------------------------------------------------- actions
     def analyze_ssh_logs(self):
-        try:
-            result = subprocess.run(
-                ["journalctl", "-u", "ssh", "--no-pager", "-n", "1000"],
-                capture_output=True, text=True, check=True
-            )
-            lines = result.stdout.splitlines()
-            self.alerts, self.success_logins = self.analyzer.analyze_logs_text(lines)
-            self._display_results("all")
-            
-            if self.live_monitor.get():
-                self.root.after(10000, self.analyze_ssh_logs)  # refresh every 10 seconds
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to read journalctl:\n{str(e)}")
+        self._start_analysis(read_journal, "Reading SSH journal")
 
     def load_log_file(self):
         path = filedialog.askopenfilename(
             title="Select SSH log file",
-            filetypes=(("Text files", "*.log *.txt"), ("All files", "*.*"))
+            filetypes=(("Log files", "*.log *.txt"), ("All files", "*.*")),
         )
         if path:
+            self._start_analysis(lambda: read_file(path), "Reading log file")
+
+    def _start_analysis(self, loader, label):
+        if self._busy:
+            return
+        self._busy = True
+        self.status.config(text=f"Status: {label}...")
+
+        def work():
             try:
-                with open(path, encoding='utf-8', errors='ignore') as f:
-                    lines = f.readlines()
-                self.alerts, self.success_logins = self.analyzer.analyze_logs_text(lines)
-                self._display_results("all")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to read file:\n{str(e)}")
+                lines = loader()
+                alerts, logins = self.analyzer.analyze_logs_text(lines)
+                self.results.put(("ok", alerts, logins, self.analyzer.skipped_lines, len(lines)))
+            except Exception as exc:  # report any failure in the UI
+                self.results.put(("error", str(exc)))
 
+        threading.Thread(target=work, daemon=True).start()
+        self.root.after(POLL_MS, self._poll_results)
+
+    def _poll_results(self):
+        try:
+            message = self.results.get_nowait()
+        except queue.Empty:
+            self.root.after(POLL_MS, self._poll_results)
+            return
+
+        self._busy = False
+        if message[0] == "error":
+            self.status.config(text="Status: Error")
+            messagebox.showerror("Error", f"Analysis failed:\n{message[1]}")
+        else:
+            _, self.alerts, self.logins, skipped, total = message
+            self._display_results(self._current_filter)
+            self.status.config(
+                text=(f"Status: {len(self.alerts)} alert(s), {len(self.logins)} login(s), "
+                      f"{total} lines read, {skipped} skipped")
+            )
+        self._schedule_live()
+
+    # ------------------------------------------------------------- display
     def _display_results(self, filter_tag):
-        self.output.delete(1.0, tk.END)
-
+        self.output.delete("1.0", tk.END)
         shown = False
+
         for alert in self.alerts:
-            if "[HIGH]" in alert and filter_tag in ("all", "high"):
-                self.output.insert(tk.END, alert + "\n", "high")
-                shown = True
-            elif "[MEDIUM]" in alert and filter_tag in ("all", "medium"):
-                self.output.insert(tk.END, alert + "\n", "medium")
-                shown = True
-            elif "[LOW]" in alert and filter_tag in ("all", "low"):
-                self.output.insert(tk.END, alert + "\n", "low")
+            tag = alert.level.lower()
+            if filter_tag in ("all", tag):
+                self.output.insert(tk.END, alert.render() + "\n", tag)
                 shown = True
 
         if filter_tag in ("all", "info"):
-            for entry in self.success_logins:
-                self.output.insert(tk.END, entry + "\n", "info")
+            for login in self.logins:
+                self.output.insert(tk.END, login.render() + "\n", "info")
                 shown = True
 
-        if not shown and filter_tag != "all":
-            self.output.insert(tk.END, "No entries match the selected filter.\n")
+        if not shown:
+            message = ("No suspicious activity found.\n" if filter_tag == "all"
+                       else "No entries match the selected filter.\n")
+            self.output.insert(tk.END, message)
 
     def _apply_filter(self, tag):
+        self._current_filter = tag
         self._display_results(tag)
-        self.status.config(text=f"Status: Filter → {tag.upper()}")
+        self.status.config(text=f"Status: Filter -> {tag.upper()}")
+
+    # ---------------------------------------------------------- live monitor
+    def _schedule_live(self):
+        self._cancel_live()
+        if self.live_monitor.get():
+            self._live_id = self.root.after(REFRESH_MS, self.analyze_ssh_logs)
+
+    def _cancel_live(self):
+        if self._live_id is not None:
+            self.root.after_cancel(self._live_id)
+            self._live_id = None
 
     def _toggle_live_monitor(self):
         if self.live_monitor.get():
             self.status.config(text="Status: Live monitoring active (every 10s)")
             self.analyze_ssh_logs()
         else:
+            self._cancel_live()
             self.status.config(text="Status: Live monitoring stopped")
 
-# ================= MAIN =================
+
 if __name__ == "__main__":
     root = tk.Tk()
-    app = IDS_GUI(root)
+    SentinelGUI(root)
     root.mainloop()

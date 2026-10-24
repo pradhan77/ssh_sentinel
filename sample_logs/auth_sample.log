@@ -1,0 +1,20 @@
+2026-10-24T09:15:10+0545 demo sshd-session[2000]: Failed password for pradhan from 192.168.1.50 port 42000 ssh2
+2026-10-24T09:15:20+0545 demo sshd-session[2001]: Accepted password for pradhan from 192.168.1.50 port 52001 ssh2
+2026-10-24T10:00:00+0545 demo sshd-session[2100]: Failed password for invalid user admin from 203.0.113.55 port 42100 ssh2
+2026-10-24T10:00:03+0545 demo sshd-session[2101]: Failed password for invalid user test from 203.0.113.55 port 42101 ssh2
+2026-10-24T10:00:06+0545 demo sshd-session[2102]: Failed password for invalid user oracle from 203.0.113.55 port 42102 ssh2
+2026-10-24T10:00:09+0545 demo sshd-session[2103]: Failed password for invalid user ubuntu from 203.0.113.55 port 42103 ssh2
+2026-10-24T10:00:12+0545 demo sshd-session[2104]: Failed password for invalid user git from 203.0.113.55 port 42104 ssh2
+2026-10-24T10:00:15+0545 demo sshd-session[2105]: Failed password for root from 203.0.113.55 port 42105 ssh2
+2026-10-24T10:00:18+0545 demo sshd-session[2106]: Failed password for root from 203.0.113.55 port 42106 ssh2
+2026-10-24T10:00:21+0545 demo sshd-session[2107]: Failed password for root from 203.0.113.55 port 42107 ssh2
+2026-10-24T10:00:30+0545 demo sshd-session[2200]: Accepted password for root from 203.0.113.55 port 52200 ssh2
+2026-10-24T10:02:00+0545 demo sshd-session[2300]: Failed password for pi from 198.51.100.77 port 42300 ssh2
+2026-10-24T10:09:00+0545 demo sshd-session[2301]: Failed password for pi from 198.51.100.77 port 42301 ssh2
+2026-10-24T10:16:00+0545 demo sshd-session[2302]: Failed password for pi from 198.51.100.77 port 42302 ssh2
+2026-10-24T10:24:00+0545 demo sshd-session[2303]: Failed password for pi from 198.51.100.77 port 42303 ssh2
+2026-10-24T10:30:00+0545 demo sshd-session[2400]: Failed password for invalid user ftpuser from 2001:db8::1 port 42400 ssh2
+2026-10-24T10:30:04+0545 demo sshd-session[2401]: Failed password for invalid user ftpuser from 2001:db8::1 port 42401 ssh2
+2026-10-24T10:30:08+0545 demo sshd-session[2402]: Failed password for invalid user ftpuser from 2001:db8::1 port 42402 ssh2
+2026-10-24T10:30:12+0545 demo sshd-session[2403]: Failed password for invalid user ftpuser from 2001:db8::1 port 42403 ssh2
+2026-10-24T11:02:44+0545 demo sshd-session[2500]: Accepted publickey for deploy-ci from 192.168.1.60 port 52500 ssh2
