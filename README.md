@@ -6,6 +6,10 @@ SSH Sentinel analyzes OpenSSH authentication logs to identify suspicious login a
 
 The project includes a command-line interface (CLI), a Tkinter graphical user interface (GUI), JSON output, and a unit-tested detection engine.
 
+## Screenshot
+
+![SSH Sentinel GUI](assets/ssh-sentinel-gui.png)
+
 ## Features
 
 - **Sliding-window detection:** Identifies bursts of failed SSH authentication attempts within a configurable time window.
