@@ -1,7 +1,6 @@
 import json
 import unittest
-from datetime import datetime
-
+from datetime import datetime, timezone
 from analyzer import classify_ip
 
 class TestIPClassification(unittest.TestCase):
@@ -43,19 +42,42 @@ def accepted(ts, ip, user="alice", method="password", pid=2000):
 
 class TestParsing(unittest.TestCase):
     def test_iso_timestamp_with_offset(self):
-        ts = parse_timestamp("2026-10-24T16:11:02+0545 kali sshd[1]: x", 2026)
-        self.assertEqual(ts, datetime(2026, 10, 24, 16, 11, 2))
+        ts = parse_timestamp(
+            "2026-10-24T16:11:02+0545 kali sshd[1]: x", 2026
+        )
+        self.assertEqual(
+            ts,
+            datetime(2026, 10, 24, 10, 26, 2, tzinfo=timezone.utc),
+        )
+
+    def test_iso_timestamp_with_colon_offset(self):
+        ts = parse_timestamp(
+            "2026-10-24T16:11:02+05:45 kali sshd[1]: x", 2026
+        )
+        self.assertEqual(
+            ts,
+            datetime(2026, 10, 24, 10, 26, 2, tzinfo=timezone.utc),
+        )
+
+    def test_iso_timestamp_with_utc_offset(self):
+        ts = parse_timestamp(
+            "2026-10-24T10:26:02+0000 kali sshd[1]: x", 2026
+        )
+        self.assertEqual(
+            ts,
+            datetime(2026, 10, 24, 10, 26, 2, tzinfo=timezone.utc),
+        )
 
     def test_syslog_timestamp_uses_given_year(self):
         ts = parse_timestamp("Jan 30 14:22:33 srv sshd[1]: x", 2025)
-        self.assertEqual(ts, datetime(2025, 1, 30, 14, 22, 33))
+        expected = datetime(2025, 1, 30, 14, 22, 33).astimezone(timezone.utc)
+        self.assertEqual(ts, expected)
 
     def test_no_timestamp_returns_none(self):
         self.assertIsNone(parse_timestamp("random garbage line", 2026))
 
     def test_invalid_date_returns_none(self):
         self.assertIsNone(parse_timestamp("2026-13-45T10:00:00 srv x", 2026))
-
 
 class TestBasics(unittest.TestCase):
     def setUp(self):

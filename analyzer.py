@@ -10,13 +10,13 @@ import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 LEVEL_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
-TIME_FMT = "%Y-%m-%d %H:%M:%S"
+TIME_FMT = "%Y-%m-%d %H:%M:%S UTC"
 MAX_USERS_SHOWN = 10
 
-ISO_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})")
+ISO_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(Z|[+-]\d{2}:?\d{2})?")
 SYSLOG_RE = re.compile(r"^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})")
 PID_RE = re.compile(r"sshd(?:-session)?\[(\d+)\]")
 
@@ -35,23 +35,36 @@ ACCEPTED_RE = re.compile(
 
 
 def parse_timestamp(line, year):
-    """Parse ISO or traditional syslog timestamps."""
+    """Parse ISO and traditional syslog timestamps, returning UTC-aware datetimes."""
     try:
         match = ISO_RE.match(line)
         if match:
-            return datetime.strptime(
-                f"{match.group(1)} {match.group(2)}",
-                "%Y-%m-%d %H:%M:%S",
-            )
+            date_part, time_part, offset = match.groups()
+            value = f"{date_part}T{time_part}"
+
+            if offset == "Z":
+                value += "+00:00"
+            elif offset:
+                if len(offset) == 5:
+                    offset = offset[:3] + ":" + offset[3:]
+                value += offset
+
+            timestamp = datetime.fromisoformat(value)
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.astimezone()
+            return timestamp.astimezone(timezone.utc)
 
         match = SYSLOG_RE.match(line)
         if match:
-            return datetime.strptime(
+            timestamp = datetime.strptime(
                 f"{year} {match.group(1)} {match.group(2)} {match.group(3)}",
                 "%Y %b %d %H:%M:%S",
             )
-    except ValueError:
+            return timestamp.astimezone(timezone.utc)
+
+    except (ValueError, OverflowError):
         return None
+
     return None
 
 
